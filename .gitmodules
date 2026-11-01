@@ -4,7 +4,7 @@
 	branch = macos-port
 [submodule "PathOfBuilding"]
 	path = PathOfBuilding
-	url = https://github.com/PathOfBuildingCommunity/PathOfBuilding.git
+	url = https://github.com/firelegacy04/PathOfBuilding.git
 	branch = master
 [submodule "PathOfBuilding-PoE2"]
 	path = PathOfBuilding-PoE2
