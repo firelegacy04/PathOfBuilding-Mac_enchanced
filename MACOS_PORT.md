@@ -224,15 +224,97 @@ Plain `hdiutil create -format UDZO`. No `create-dmg` brew dependency. Refuses to
 
 ## End-to-end build / test
 
+Quickest local iteration — configure, build, ad-hoc sign, run (no DMG):
+
 ```
-cmake -B build
-cmake --build build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 cmake --install build --prefix /tmp/pob-install-wrapper
-macos/sign.sh                             # ad-hoc for local iteration
+macos/sign.sh                             # ad-hoc, defaults to that prefix
 open "/tmp/pob-install-wrapper/Path of Building.app"
 ```
 
-For a release build: set `CODESIGN_IDENTITY` before `sign.sh`, then run `make-dmg.sh` against the signed bundle, then notarize+staple (pipeline pending — see below).
+The top-level `CMakeLists.txt` auto-wires vcpkg (toolchain, manifest dir,
+overlay triplet), so no `-DCMAKE_TOOLCHAIN_FILE` is needed. The first configure
+builds the whole vcpkg dependency tree (ANGLE, curl, LuaJIT, GLFW, …) from
+source and takes a while; later runs reuse the binary cache.
+
+Prerequisites on a clean machine:
+
+```
+xcode-select --install                    # codesign, hdiutil, clang, make
+brew install cmake pkg-config ninja       # pkg-config is required by vcpkg's
+                                          # pkgconfig fixup; CI images ship it
+git submodule update --init --recursive
+```
+
+`PKG_CONFIG_PATH` is deliberately cleared during the build so Homebrew's
+openssl can't leak into vcpkg's curl (CI does the same).
+
+## Building release binaries
+
+`macos/build-release.sh` runs the full release sequence — configure (Release),
+build, install into a clean staging dir, ad-hoc sign, package DMG — for either
+or both variants:
+
+```
+macos/build-release.sh          # PoE1 -> dist/PathOfBuilding-Mac.dmg
+macos/build-release.sh poe2     # PoE2 -> dist/PathOfBuilding-Mac-PoE2.dmg
+macos/build-release.sh both     # both, sequentially
+```
+
+What the script pins, and what CI pins identically:
+
+| Variant | `POB_LUA_TREE` | `POB_BUNDLE_NAME` | `POB_BUNDLE_ID` | `POB_APP_SUPPORT_DIR` |
+| --- | --- | --- | --- | --- |
+| PoE1 | `PathOfBuilding` | `Path of Building` | `ch.spidy.PathOfBuildingMac` | `PathOfBuildingMac` |
+| PoE2 | `PathOfBuilding-PoE2` | `Path of Building - PoE2` | `ch.spidy.PathOfBuildingMacPoE2` | `PathOfBuildingMacPoE2` |
+
+`POB_VERSION` overrides the bundle version for both (default: the value pinned
+in `macos/build-release.sh`, which mirrors `CMakeLists.txt` and the workflows —
+currently `2.66.2-2` for PoE1). That string lands in `Info.plist` and is also
+the launcher's App Support refresh marker: existing installs only re-extract
+`src/` when it differs from the value written at their last install, so **it
+must change on every release** — rebuilding new Lua under an unchanged version
+is silently ignored by anyone upgrading. Set
+`CODESIGN_IDENTITY="Developer ID Application: … (TEAMID)"` to sign for real
+instead of ad-hoc, then run `macos/notarize.sh` on the DMG.
+
+The DMGs from this script are ad-hoc signed and **not notarized** — users get
+the Gatekeeper "Apple could not verify" prompt and have to right-click → Open.
+
+## Releasing on GitHub
+
+Two routes.
+
+**1. Tag → CI publishes the release (no local toolchain).** Push a `fork-v*`
+tag and `.github/workflows/release-macos-fork.yml` builds the PoE1 bundle,
+ad-hoc signs it, packages `PathOfBuilding-Mac.dmg` and creates/updates the
+GitHub Release:
+
+```
+git tag fork-v0.2.0
+git push origin fork-v0.2.0
+```
+
+Do **not** tag `mac-v*` in this fork: that triggers `release-macos.yml`, which
+imports a Developer ID certificate from secrets that only exist in the upstream
+repo and then notarizes — it fails here. (`.github/workflows/build-macos.yml`
+runs on every push and uploads both DMGs as 90-day workflow artifacts, which is
+handy for grabbing a test build without a local toolchain.)
+
+**2. Manual attach.** Build locally, then either:
+
+```
+gh release create fork-v0.2.0 dist/PathOfBuilding-Mac.dmg \
+    --title "Path of Building for Mac v0.2.0" --generate-notes
+# or, for a release that already exists:
+gh release upload fork-v0.2.0 dist/PathOfBuilding-Mac.dmg --clobber
+```
+
+or open the release in the web UI and drag the `.dmg` files into the assets
+area. The workflows hardcode the bundle versions (`2.66.2-2` / `0.15.0`), so bump
+them there when you bump the PoB submodule.
 
 ## Upstream bugs found along the way
 
