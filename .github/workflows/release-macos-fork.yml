@@ -41,7 +41,7 @@ jobs:
         run: >
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           -DPOB_LUA_TREE="${{ github.workspace }}/PathOfBuilding"
-          -DPOB_BUNDLE_VERSION="2.66.2"
+          -DPOB_BUNDLE_VERSION="2.66.2-2"
           -DPOB_BUNDLE_NAME="Path of Building"
           -DPOB_BUNDLE_ID="ch.spidy.PathOfBuildingMac"
           -DPOB_APP_SUPPORT_DIR="PathOfBuildingMac"
